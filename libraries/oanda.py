@@ -1,8 +1,5 @@
-# Imports
-import pandas as pd
+import datetime
 import numpy as np
-import json
-import pprint
 import oandapyV20
 import sys
 from oandapyV20.contrib.factories import InstrumentsCandlesFactory
@@ -14,80 +11,129 @@ import oandapyV20.endpoints.accounts as accounts
 import oandapyV20.endpoints.orders as orders
 import oandapyV20.endpoints.pricing as pricing
 import oandapyV20.endpoints.forexlabs as labs
-"""
-Need to import configs
-"""
-
-# Homegrown Libraries
-sys.path.insert(1, '/Users/user/Desktop/algo')
+sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.database import dictionary_insert
 from libraries.database import database_execute
 from libraries.database import database_retrieve
+from configs import oanda_api, oanda_account  # Oanda Account Parameters
 
-# Oanda Account Parameters
-oanda_api = configs.oanda_api
-oanda_account = configs.oanda_account
 
-def price_stream_to_db(pairs, db, bid_or_ask='bids', queue = False,
-                       clear_databases=True, client=oanda_api):
-    '''
+def price_stream_nosql(pairs_index, db, bids_or_asks, q1,  oanda_api=oanda_api, oanda_account=oanda_account):
+    """
     Stream Prices from Oanda for pairs list.  Insert into 'pairs' table
     Load data into a q if passed as argument
-    '''
-
+    """
     # Create Pairs Dictionary
-    pairs_dictionary = dict(zip((pairs), [1] * len(pairs)))
+    pairs_dictionary = dict(zip(pairs_index, [1] * len(pairs_index)))
     pairs_dictionary['timestamp'] = str(np.datetime64('now'))
-    
+
     # Create Database
-    statement =  'create table if not exists pairs (' \
-              'id integer primary key, timestamp text not null, '
-    statement += ' real not null, '.join(pairs)
+    statement = 'create table if not exists pairs (' \
+                'id integer primary key, timestamp text not null, '
+    statement += ' real not null, '.join(pairs_index)
     statement += ' real not null);'
     database_execute(db, statement)
-    if clear_databases:
-        database_execute(db, 'delete from pairs')
-        
+    database_execute(db, 'delete from pairs')
+
     # Streaming Parameters
-    api = oandapyV20.API(access_token=oanda_api)
-    params ={'instruments': ','.join(pairs)} 
-    r = pricing.PricingStream(accountID=oanda_account, params=params)   
+    api = oandapyV20.API(access_token='f3e81960f4aa75e7e3da1f670df51fae-73d8ac6fb611eb976731c859e2517a9b')
+    params = {'instruments': ','.join(pairs_index)}
+    r = pricing.PricingStream(accountID=oanda_account, params=params)
+    print('Streaming Oanda Pricing Data:')
 
-
-    # Setup q
-    statement = 'SELECT id FROM pairs ORDER BY ID DESC LIMIT 1'
-    q_count = database_retrieve(db, statement)
-    if len(q_count) > 0:
-        q_count = q_count[0][0]
-    else:
-        q_count = 1
-        
-
-    
     # Start Data Stream
+    count = 1
     while True:
         try:
             for ticks in api.request(r):
                 if ticks['type'] == 'PRICE':
-                    if ticks['instrument'] in pairs:
+                    if ticks['instrument'] in pairs_index:
 
                         # Update Pairs Dictionary with price and time
-                        price = float(ticks[bid_or_ask][0]['price'])
+                        price = float(ticks[bids_or_asks][0]['price'])
                         pairs_dictionary[ticks['instrument']] = price
                         pairs_dictionary['timestamp'] = ticks['time']
 
                         # Insert pairs Dictionary into pairs table
                         dictionary_insert(db, 'pairs', pairs_dictionary)
-                        
-                        # Load table record into q
-                        if queue != False:
-                            queue.put(q_count)
-                            q_count += 1
-                            
-                            
+
+                        # Load row into q and update count
+                        q1.put(count)
+                        # q2.put(count)
+                        # q3.put(count)
+                        # q4.put(count)
+                        # q5.put(count)
+
+                        count += 1
+                        # Debug - testing timestamps
+                        if count % 500 == 0:
+                            print('Sent {}:        {}'.format(count, ticks['time']))
+                            print('Queued {}:      {}'.format(count, (str(datetime.datetime.now()))))
+
+
         except Exception as e:
             print(e)
-    return
+
+
+
+
+def price_stream(pairs_index, db, bids_or_asks, q1, #q2, q3, q4, q5,
+                 oanda_api=oanda_api, oanda_account=oanda_account):
+
+    """
+    Stream Prices from Oanda for pairs list.  Insert into 'pairs' table
+    Load data into a q if passed as argument
+    """
+    # Create Pairs Dictionary
+    pairs_dictionary = dict(zip(pairs_index, [1] * len(pairs_index)))
+    pairs_dictionary['timestamp'] = str(np.datetime64('now'))
+    
+    # Create Database
+    statement = 'create table if not exists pairs (' \
+                'id integer primary key, timestamp text not null, '
+    statement += ' real not null, '.join(pairs_index)
+    statement += ' real not null);'
+    database_execute(db, statement)
+    database_execute(db, 'delete from pairs')
+        
+    # Streaming Parameters
+    api = oandapyV20.API(access_token='f3e81960f4aa75e7e3da1f670df51fae-73d8ac6fb611eb976731c859e2517a9b')
+    params ={'instruments': ','.join(pairs_index)} 
+    r = pricing.PricingStream(accountID=oanda_account, params=params)   
+    print('Streaming Oanda Pricing Data:')
+
+    # Start Data Stream
+    count = 1
+    while True:
+        try:
+            for ticks in api.request(r):
+                if ticks['type'] == 'PRICE':
+                    if ticks['instrument'] in pairs_index:
+
+                        # Update Pairs Dictionary with price and time
+                        price = float(ticks[bids_or_asks][0]['price'])
+                        pairs_dictionary[ticks['instrument']] = price
+                        pairs_dictionary['timestamp'] = ticks['time']
+
+                        # Insert pairs Dictionary into pairs table
+                        dictionary_insert(db, 'pairs', pairs_dictionary)
+
+                        # Load row into q and update count
+                        q1.put(count)
+                        # q2.put(count)
+                        # q3.put(count)
+                        # q4.put(count)
+                        # q5.put(count)
+
+                        count += 1
+                        # Debug - testing timestamps
+                        if count % 500 == 0:
+                            print('Sent {}:        {}'.format(count, ticks['time']))
+                            print('Queued {}:      {}'.format(count, (str(datetime.datetime.now()))))
+
+
+        except Exception as e:
+            print(e)
 
 
 

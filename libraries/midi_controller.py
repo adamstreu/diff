@@ -3,9 +3,9 @@ import pygame.midi
 import sys
 
 # Homegrown 
-sys.path.insert(1, '/Users/user/Desktop/algo')
-from libraries.oanda import close_all_positions
-from libraries.oanda import create_order
+sys.path.insert(1, '/Users/user/Desktop/diff')
+from libraries.oanda_old import close_all_positions
+from libraries.oanda_old import create_order
 
 '''
 Purpose: 
