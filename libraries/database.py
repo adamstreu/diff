@@ -2,7 +2,7 @@ import sqlite3
 
 
 ''' Helper library for working with SQLITE3 Database '''
-   
+
 
 # Insert Dictionary into matching table
 def dictionary_insert(db, table, dictionary):
@@ -20,8 +20,7 @@ def dictionary_insert(db, table, dictionary):
         print(e)
     return
 
-    
-    
+
 # Execute Statement on database
 def database_execute(db, statement):
     conn = sqlite3.connect(db)
@@ -31,6 +30,7 @@ def database_execute(db, statement):
     cur.close()
     conn.close()
     return
+
 
 # Execute Statement on database
 def database_retrieve(db, statement):

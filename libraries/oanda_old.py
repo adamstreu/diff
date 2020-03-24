@@ -40,12 +40,12 @@ def price_stream(pairs_index, db, bids_or_asks, q, oanda_api=oanda_api, oanda_ac
     database_execute(db, 'delete from pairs')
         
     # Streaming Parameters
-    api = oandapyV20.API(accedss_token=oanda_api)
+    api = oandapyV20.API(access_token=oanda_api)
     params ={'instruments': ','.join(pairs_index)} 
     r = pricing.PricingStream(accountID=oanda_account, params=params)   
     
     # Start Data Stream
-    count = 1
+    q_count = 1
     while True:
         try:
             for ticks in api.request(r):
@@ -65,7 +65,7 @@ def price_stream(pairs_index, db, bids_or_asks, q, oanda_api=oanda_api, oanda_ac
                         q_count += 1
                         
                         # Debug - testing timestamps
-                        if count % 10 == 0:
+                        if q_count % 10 == 0:
                             print('Streaming_count, timestamp: {}: {}'.format(q_count, ticks['time']))
 
         except Exception as e:

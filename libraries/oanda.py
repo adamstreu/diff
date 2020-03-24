@@ -11,11 +11,103 @@ import oandapyV20.endpoints.accounts as accounts
 import oandapyV20.endpoints.orders as orders
 import oandapyV20.endpoints.pricing as pricing
 import oandapyV20.endpoints.forexlabs as labs
-sys.path.insert(1, '/Users/user/Desktop/diff')
+# sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.database import dictionary_insert
 from libraries.database import database_execute
 from libraries.database import database_retrieve
-from configs import oanda_api, oanda_account  # Oanda Account Parameters
+import yaml
+
+# Import Configs File
+configs_file = '/Users/user/Desktop/diff/configs.yaml'
+with open(configs_file) as f:
+    configs = yaml.load(f, Loader=yaml.FullLoader)
+
+# Oanda Parameters
+oanda_api = configs['oanda_api']
+oanda_account = configs['oanda_account']
+
+
+def fetch_account_details(oanda_api=oanda_api, oanda_account=oanda_account):
+
+    # Fetch Account Details
+    client = oandapyV20.API(access_token=oanda_api)
+    r = accounts.AccountDetails(oanda_account)
+    client.request(r)
+    return r.response
+
+
+
+def close_position(direction, pair):
+
+    # Get Units to close based on direction of original trade
+    if direction == 'buy':
+        units = 'longUnits'
+        return_fields = ['longOrderCreateTransaction',
+                         'longOrderFillTransaction']
+    else:
+        units = 'shortUnits'
+        return_fields = ['shortOrderCreateTransaction',
+                         'shortOrderFillTransaction']
+    # Request Parameters
+    data = {units: "ALL"}
+    client = oandapyV20.API(access_token=oanda_api)
+    r = positions.PositionClose(accountID=oanda_account,
+                                instrument=pair,
+                                data=data)
+    # Attempt Request and return response
+    try:
+        client.request(r)
+        print(r.response)
+        return r.response
+    except:
+        return r.response
+        print(r.response)
+
+
+def create_order(pair, direction, pips, commission, loss_target, purchase_price, oanda_api, oanda_account):
+    
+    def calculate_quantity(loss_target, commission, pips):
+        quantity = int(loss_target / ((commission + pips) * .0001))
+        if direction == 'buy':
+            return quantity
+        else:
+            return - quantity
+
+    def calculate_stop_loss_price(pips, direction, purchase_price):
+        if direction == 'buy':
+            stop_loss_price = purchase_price - (pips * .0001)
+        else:
+            stop_loss_price = purchase_price + (pips * .0001)
+        return stop_loss_price
+    
+    # Calculate trade parameters
+    quantity = calculate_quantity(loss_target, commission, pips)
+    stop_loss_price = calculate_stop_loss_price(pips, direction, purchase_price)
+    q = 30000
+    if direction == 'sell':
+        q = - q
+    # Fix Trade Data
+    data = {'order': {"units": q, #quantity,
+                      "instrument": pair,
+                      "timeInForce": "FOK",
+                      "type": "MARKET",
+                      "positionFill": "DEFAULT"}}#,
+                      # 'stopLossOnFill': {'timeInForce': 'GTC',
+                      #                    'price': str(round(stop_loss_price, 5))}}}
+
+    # Place Order
+    client = oandapyV20.API(access_token=oanda_api)
+    r = orders.OrderCreate(oanda_account, data=data)
+    try:
+        client.request(r)
+        return r.response
+    except Exception as e:
+        print(e)
+        return r.response
+
+
+
+
 
 
 def price_stream_nosql(pairs_index, db, bids_or_asks, q1,  oanda_api=oanda_api, oanda_account=oanda_account):
@@ -151,67 +243,57 @@ def get_open_positions(client=oanda_api, account_id = oanda_account):
     return instruments  
 
 
-def close_all_positions(client=oanda_api, account_id = oanda_account):
+def close_all_positions(oanda_api=oanda_api, account_id=oanda_account):
     instruments = get_open_positions()
-    client = oandapyV20.API(access_token=client)
+    client = oandapyV20.API(access_token=oanda_api)
     for pair in instruments:
         if pair[1] == 'long':
             data = { "longUnits": "ALL" }
         else:
             data = { "shortUnits": "ALL" }
-        r = positions.PositionClose(accountID=account_id,
-                                     instrument=pair[0], 
-                                     data = data)
+        r = positions.PositionClose(account_id,
+                                    instrument=pair[0],
+                                    data = data)
         client.request(r)
         print('\nPositions closed: {}\n'.format(pair))
         print(r.response)
     return
-    
-
-def available_margin():
-    pass
 
 
-def create_order(instrument, direction, stop_loss,
-                 client=oanda_api, account_id = oanda_account):
-    
-    
-    def calculate_quantity():
-        pass
-
+"""
+def create_order(instrument, direction, stop_loss, quantity=30000,
+                 oanda_api=oanda_api, oanda_account=oanda_account):
 
     def calculate_quantity():
         pass
-    
-    
-    
-    #, quantity, target, stop, account):
-    client = oandapyV20.API(access_token=client)
-    if direction == 'BUY':
-        units = 10000
-    elif direction == 'SELL':
-        units = -10000
-    else:
-        print('Creat Order error: Direction uncertain')
-    data   = {'order' : {"units": units, #quantity, 
-                         "instrument": instrument, 
-                         "timeInForce": "FOK", 
-                         "type": "MARKET", 
-                         "positionFill": "DEFAULT"}}
-                         
+        
+
+    def calculate_quantity():
+        pass
+    # Fix Trade Data
+    quantity = quantity if direction == 'BUY' else -quantity
+    data = {'order' : {"units": quantity,
+                       "instrument": instrument,
+                       "timeInForce": "FOK",
+                       "type": "MARKET",
+                       "positionFill": "DEFAULT"}}
+    # Place Order
+    client = oandapyV20.API(access_token=oanda_api)
+    r = orders.OrderCreate(oanda_account, data=data)
+    client.request(r)
+    # Print Return
+    print('\nPositions Opened: {} {}\n'.format(instrument, direction))
+    print(r.response)
+
     '''
     'takeProfitOnFill' : {'price': str(round(target, 5)), 
                               'timeInForce' : 'GTC'},
     'stopLossOnFill':    {'price': str(stop_loss), 
                                                'timeInForce' : 'GTC'}}}
-
     '''
-    r = orders.OrderCreate(account_id, data=data)
-    client.request(r)    
-    print('\nPositions Opened: {} {}\n'.format(instrument, direction))
-    print(r.response) # int(r.response['orderCreateTransaction']['id'])
-    return
 
+    return
+"""
 
 
 """
