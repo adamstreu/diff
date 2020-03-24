@@ -1,5 +1,6 @@
 import datetime
 import numpy as np
+import pandas as pd
 import oandapyV20
 import sys
 from oandapyV20.contrib.factories import InstrumentsCandlesFactory
@@ -25,6 +26,52 @@ with open(configs_file) as f:
 # Oanda Parameters
 oanda_api = configs['oanda_api']
 oanda_account = configs['oanda_account']
+daily_alignment = 0
+
+
+
+def get_candles_bid_close(instrument, granularity, _from, _to,
+                          da=daily_alignment, oanda_api=oanda_api):
+    print('Fetching Candles.')
+    client = oanda_api
+    client = oandapyV20.API(access_token=client)
+    params = {'from': _from,
+              'to': _to,
+              'granularity': granularity,
+              'price': 'B',
+              'count': 5000,
+              'alignmentTimezone': 'America/Los_Angeles',
+              'dailyAlignment': da}
+    # Request Data
+    coll = []
+    for r in InstrumentsCandlesFactory(instrument = instrument, 
+                                       params = params):
+        try:
+            client.request(r)
+            coll.append(r.response)
+        except Exception as e:
+            print(e)
+    # collect Returned Data into list.  Cast to floats.
+    bidclose = []
+    timestamp = []
+    volume = []
+    for i in range(len(coll)):
+        for j in range(len(coll[i]['candles'])):
+            bidclose.append(float(coll[i]['candles'][j]['bid']['c']))              
+            timestamp.append(coll[i]['candles'][j]['time'])
+            volume.append(float(coll[i]['candles'][j]['volume']))
+    # Assemble DataFrame.  Cast Values.
+    df = pd.DataFrame(pd.to_datetime(timestamp))
+    df.columns = ['timestamp']
+    df[instrument] = pd.to_numeric(bidclose)
+    df['volume'] = pd.to_numeric(volume)
+    if not coll[i]['candles'][-1]['complete']:
+        df.drop(df.last_valid_index(), inplace=True)
+    return df
+
+
+
+
 
 
 def fetch_account_details(oanda_api=oanda_api, oanda_account=oanda_account):

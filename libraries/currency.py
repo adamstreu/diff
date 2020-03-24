@@ -1,12 +1,15 @@
 import numpy as np
 
 
-def conversion_old(pairs, currencies):
+
+
+
+def conversion_dict(pairs, currencies):
     '''
     Calculate currencies based on pairs
     Return Currency dictionary based on full set of instrument prices
     '''
-    
+        
     for currency in currencies.keys():
         # If pair contains currency, add it to the subset, making sure that
         # It is added with the currency as the denominator
