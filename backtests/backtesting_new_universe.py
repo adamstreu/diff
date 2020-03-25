@@ -2,9 +2,9 @@ import pandas as pd
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
-oandapyV20.endpoints.accounts.AccountInstruments
 sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.oanda import get_candles_bid_close
+from libraries.oanda import get_tradable_instruments
 
 """
 Backtesting currencies and Indicators and Look for major trends:
@@ -26,29 +26,26 @@ Questions:
 
 
 # Candle Parameters
-_from = '2019-06-01T00:00:00Z'
+_from = '2019-12-01T00:00:00Z'
 _to = '2020-01-01T00:00:00Z'
-granularity = 'D'
+granularity = 'H1'
 
 # Pairs
-pairs_index = ['AUD_CAD', 'AUD_CHF', 'AUD_HKD', 'AUD_JPY', 'AUD_NZD',
-                'AUD_USD', 'CAD_CHF', 'CAD_HKD', 'CAD_JPY', 'CHF_HKD',
-                'CHF_JPY', 'EUR_AUD', 'EUR_CAD', 'EUR_CHF', 'EUR_GBP',
-                'EUR_HKD', 'EUR_JPY', 'EUR_NZD', 'EUR_USD', 'GBP_AUD',
-                'GBP_CAD', 'GBP_CHF', 'GBP_HKD', 'GBP_JPY', 'GBP_NZD',
-                'GBP_USD', 'HKD_JPY', 'NZD_CAD', 'NZD_CHF', 'NZD_HKD',
-                'NZD_JPY', 'NZD_USD', 'USD_CAD', 'USD_CHF', 'USD_HKD',
-                'USD_JPY']
+instruments = get_tradable_instruments()
+pairs_index = [x['name'] for x in instruments['instruments']]
 
 # Currencies
 currencies_index = list(set('_'.join(pairs_index).split('_')))
 currencies_index.sort()
+currency_dict = dict(zip(currencies_index, [0] * len(currencies_index)))
 
 
 
-# Call Candles and assemble in to appropriate Dataframe
+# Call Candles and assemble in to appropriate Dataframe, Calculate Indicators
 ##############################################################################
 if True:
+    
+    # GEt candles
     pairs = get_candles_bid_close(pairs_index[0], granularity, _from, _to)
     pairs = pairs.drop('volume', axis=1)
     pairs = pairs.set_index('timestamp', drop=True)
@@ -60,37 +57,33 @@ if True:
     # Fill Forward missing prices, drop top row if any nans remain
     pairs = pairs.fillna(method='ffill').dropna()
 
-
-
-# Calculate Currencies and Indicator for each timestamp
-##############################################################################
-if True:
-    def conversion_dict(pairs, currencies):
-        '''
-        Calculate currencies based on pairs
-        Return Currency dictionary based on full set of instrument prices
-        Input: pairs:      dictionary:       currenct value of each pair 
-               currencies: dictionary:       values can be zero
-        '''
-        for currency in currencies.keys():
-            # If pair contains currency, add it to the subset, making sure that
-            # It is added with the currency as the denominator
-            pair_subset = []
-            for pair in list(pairs.keys()):
-                if currency == pair.split('_')[0]:
-                    pair_subset.append(1 / pairs[pair])
-                if currency == pair.split('_')[1]:
-                    pair_subset.append(    pairs[pair])
-            currencies[currency] = 1 / (np.array(pair_subset).sum() + 1 )
-        return currencies 
+    # Calculate Currencies and Indicator for each timestamp
+    def conversion(pairs_dict, currency_dict):
+        # Calculate USD Value
+        pair_subset = []
+        for pair in list(pairs_dict.keys()):
+            if 'USD' == pair.split('_')[0]:
+                pair_subset.append(1 / pairs_dict[pair])
+            if 'USD' == pair.split('_')[1]:
+                pair_subset.append(    pairs_dict[pair])
+        currency_dict['USD'] = 1 / (np.array(pair_subset).sum() + 1 )
+        # Compute remaining Currencies using USD
+        usd_subset = [pair for pair in pairs if 'USD' in pair.split('_') ]
+        for pair in usd_subset:
+            currency = pair.replace('USD', '').replace('_', '')
+            if pair.split('_')[0] == 'USD':
+                currency_dict[currency] = currency_dict['USD'] / pairs_dict[pair]
+            else:
+                currency_dict[currency] = currency_dict['USD'] * pairs_dict[pair]
+        # Return Currencies Dicctionary
+        return currency_dict
     
-    currency_dict = dict(zip(currencies_index, [0] * len(currencies_index)))
+    # Calculate Currrencies from each pairs row
     currencies = pd.DataFrame(columns = currencies_index)
     for index, row in pairs.iterrows():
         p = row.to_dict()
-        currencies.loc[index] = conversion_dict(p, currency_dict)
-        
- 
+        currencies.loc[index] = conversion(p, currency_dict)
+                
     # Rcalculate Pairs based on currency prices
     calculated = pairs.copy()
     for column in calculated:
@@ -100,12 +93,17 @@ if True:
         
     # Calculate Difference Indicator   
     differences = calculated - pairs
-    
             
-
-
-
-
+        
+        
+        
+        
+    
+    
+    
+    
+    
+    
 
 
 
@@ -116,50 +114,8 @@ if True:
 # Difference test 1
 ##############################################################################
 if False:
-    '''
-    for a currency:
-        Bin amount differences were positive 
-        for each bin:
-            how many times did it happen?
-            what was the percent of time that the next days price was higher?
-        
-    '''
-    
-    # Only choose those days where the difference was greater than zero
-    
-    # This is wrong.
-    
-    '''
-    curr = 'EUR_USD'
-    greater_than_0_index = differences[curr].values > 0
-    diff_greater = differences[curr].values[greater_than_0_index]
-    pair_greater = pairs[curr].values[greater_than_0_index]
-    bins = pd.cut(diff_greater, 50, labels=False)
-    
-    
-    _bins = []
-    _count = []
-    _greater_than = []
-    for i in range(bins.max() + 1):
-        _bins.append(i)
-        _count.append((bins == i).sum())
-        # greater_than = (pairs[curr].values[bins == i] < \
-        #                 pairs[curr].values[np.roll(bins == i, 1)]).mean()
-        greater_than = (pair_greater[bins == i] < \
-                        pair_greater[np.roll(bins == i, 1)]).mean()
-        _greater_than.append(greater_than)
-        
-    plt.scatter(_count, _greater_than)
-    '''
-    
-    
-    
-    
-    # WY DOES E_USD RETURN ON 300 RESUTLS  ?? ? ? 
-    # ANYWAY - TIRED NOW.
-    
-    
-    
+ 
+      
     curr = 'EUR_USD'
     bins = pd.cut(differences[curr], 50, labels=False)
     greater_than_0_index = calculated[curr] > pairs[curr]

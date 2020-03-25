@@ -12,6 +12,7 @@ import oandapyV20.endpoints.accounts as accounts
 import oandapyV20.endpoints.orders as orders
 import oandapyV20.endpoints.pricing as pricing
 import oandapyV20.endpoints.forexlabs as labs
+oandapyV20.endpoints.accounts.AccountInstruments
 # sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.database import dictionary_insert
 from libraries.database import database_execute
@@ -29,6 +30,13 @@ oanda_account = configs['oanda_account']
 daily_alignment = 0
 
 
+def get_tradable_instruments(oanda_api=oanda_api, 
+                             oanda_account=oanda_account):
+    client = oandapyV20.API(access_token=oanda_api)
+    params = {"instruments": ""}#"EU50_EUR,EUR_USD,US30_USD,FR40_EUR,EUR_CHF,DE30_EUR"}
+    r = accounts.AccountInstruments(oanda_account, params=params)
+    client.request(r)
+    return r.response
 
 def get_candles_bid_close(instrument, granularity, _from, _to,
                           da=daily_alignment, oanda_api=oanda_api):

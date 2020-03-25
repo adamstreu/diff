@@ -2,72 +2,66 @@ import numpy as np
 import time
 import sys
 import copy
+import yaml
 from datetime import datetime
-from multiprocessing import Process, RawArray, Queue, Value, Lock
+from multiprocessing import Process, RawArray, Queue, Value
 import oandapyV20
 import oandapyV20.endpoints.pricing as pricing
-# import pyqtgraph as pg
-# from pyqtgraph.Qt import QtGui, QtCore
-# from pyqtgraph.ptime import time as pyqt_time
-import yaml
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtGui, QtCore
 from scipy import stats
+sys.path.insert(1, '/Users/user/Desktop/diff')
+from libraries.oanda import get_tradable_instruments
 
-# Notes
+
+
 """
 Refactor code:
-    Put shared arry in calculations
-    let graph do rest of processing
     figure out how many data points I can hande in calculation and set
-    have graph variable for how many to points to graph
-    can i put this into a class ? 
-        Yes but later - for christs sake its a days work.
-    
+
+
 """
 
 
 class Stream(Process):
 
     def __init__(self):
+
+        # In order to be able to run processes in class properly
         Process.__init__(self)
         
         # Import Configs File
         self.configs_file = '/Users/user/Desktop/diff/configs.yaml'
         with open(self.configs_file) as f:
             self.configs = yaml.load(f, Loader=yaml.FullLoader)
+                
+        # Pairs
+        self.pairs_index = get_tradable_instruments()
+        self.pairs_index = [x['name'] for x in self.pairs_index['instruments']]
         
-        # Stream Parameters
+        # Currencies
+        self.currencies_index = list(set('_'.join(self.pairs_index).split('_')))
+        self.currencies_index.sort()
+        
+        # Streaming Parameters
         self.bids_or_asks = 'bids'
-        
-        # Graph Window
-        self.data_points = 10000
-        self.debug_row = 100
-        self.graph_points = 1000
         
         # Data Windows
         self.mean_windows = [10, 20, 30]
         self.cov_windows = [30, 75, 150]
         self.slope_windows = [30, 75]
-        
-        # Pairs
-        self.pair_to_graph = 18
-        self.pairs_index = ['AUD_CAD', 'AUD_CHF', 'AUD_HKD', 'AUD_JPY', 'AUD_NZD',
-                       'AUD_USD', 'CAD_CHF', 'CAD_HKD', 'CAD_JPY', 'CHF_HKD',
-                       'CHF_JPY', 'EUR_AUD', 'EUR_CAD', 'EUR_CHF', 'EUR_GBP',
-                       'EUR_HKD', 'EUR_JPY', 'EUR_NZD', 'EUR_USD', 'GBP_AUD',
-                       'GBP_CAD', 'GBP_CHF', 'GBP_HKD', 'GBP_JPY', 'GBP_NZD',
-                       'GBP_USD', 'HKD_JPY', 'NZD_CAD', 'NZD_CHF', 'NZD_HKD',
-                       'NZD_JPY', 'NZD_USD', 'USD_CAD', 'USD_CHF', 'USD_HKD',
-                       'USD_JPY']
-        
-        # Currencies
-        self.currencies_index = list(set('_'.join(self.pairs_index).split('_')))
-        self.currencies_index.sort()
-        self.currency_1_to_graph = 3
-        self.currency_2_to_graph = 8
-        
+                
         # Oanda Parameters - Need to update to configs
         self.oanda_api = self.configs['oanda_api']
         self.oanda_account = self.configs['oanda_account']
+
+        # Graphing
+        self.data_points = 25000
+        self.graph_points = 500
+        self.debug_row = 100
+        self.pair_to_graph = 18
+        self.currency_1_to_graph = 3
+        self.currency_2_to_graph = 8
 
         # Shared Arrays, Q's and Values
         self.q = Queue()
@@ -76,7 +70,6 @@ class Stream(Process):
         self.calculated = RawArray('d', self.data_points * len(self.pairs_index))
         self.currencies = RawArray('d', self.data_points * len(self.currencies_index))
         self.row = Value('i', 0)
-
 
     def price_stream(self):
     
@@ -120,19 +113,19 @@ class Stream(Process):
                         self.configs['ask'] = float(ticks['asks'][0]['price'])
                         with open(self.configs_file, 'w') as f:
                             yaml.dump(self.configs, f)
-            
-            
 
-    
-    
-        
+            
     def calculations(self):
         
         # Do what needs to be done with shared arrays
-        raw_pairs = np.frombuffer(self.pairs, dtype=np.float64).reshape(len(self.pairs_index), self.data_points)
-        raw_currencies = np.frombuffer(self.currencies, dtype=np.float64).reshape(len(self.currencies_index), self.data_points)
-        raw_calculated = np.frombuffer(self.calculated, dtype=np.float64).reshape(len(self.pairs_index), self.data_points)
-        raw_differences = np.frombuffer(self.differences, dtype=np.float64).reshape(len(self.pairs_index), self.data_points)
+        raw_pairs = np.frombuffer(self.pairs, dtype=np.float64)
+        raw_pairs = raw_pairs.reshape(len(self.pairs_index), self.data_points)
+        raw_currencies = np.frombuffer(self.currencies, dtype=np.float64)
+        raw_currencies = raw_currencies.reshape(len(self.currencies_index), self.data_points)
+        raw_calculated = np.frombuffer(self.calculated, dtype=np.float64)
+        raw_calculated = raw_calculated.reshape(len(self.pairs_index), self.data_points)
+        raw_differences = np.frombuffer(self.differences, dtype=np.float64)
+        raw_differences = raw_differences.reshape(len(self.pairs_index), self.data_points)
 
         # Required Numpy Arrays
         pairs = np.ones((len(self.pairs_index), self.data_points))
@@ -182,7 +175,6 @@ class Stream(Process):
                 _differences = _calculated.copy() - _pairs.copy()
                 differences[:, -1] = _differences.copy()
         
-                
                 # Write Values to Shared Arrays
                 np.copyto(raw_pairs, pairs)
                 np.copyto(raw_currencies, currencies)
@@ -194,21 +186,71 @@ class Stream(Process):
                 calculations_end = datetime.now()
                 if row % self.debug_row == 0:
                     print('Calculation Cycle Time {}:     {}'.format(row, calculations_end - calculations_start))
-                    print('Recent Pairs rom Calc  {}:     {}'.format(row, pairs[0, -1]))
+                    print('Calculation at         {}:     {}'.format(row, datetime.now()))
 
 
-    def print_pairs(self):
-        a = np.frombuffer(self.pairs).reshape(len(self.pairs_index), -1)
+    def print_currencies(self):
+        a = np.frombuffer(self.currencies).reshape(len(self.currencies_index), -1)
         printed = 0
         while True:
             row = self.row.value            
             if row % self.debug_row == 0 and row > printed:
-                print('From Next Function     {}:     {}'.format(row, a[0, -1]))
+                print('From Next Function     {}:     {}'.format(row, a[:, -1]))
                 printed = row
+
 
     def start_processes(self):
         Process(target=self.calculations).start()
-        Process(target=self.print_pairs).start()
+        Process(target=self.graph_currencies).start()
+        # Process(target=self.print_currencies).start()
+
+
+    def graph_currencies(self):
+        global curve, data, p, last_plotted
+
+        def update():
+            global curve, data, ptr, p, last_plotted
+            start = datetime.now()
+            # Only Update graph with new data
+            row = self.row.value
+            if row > last_plotted:
+                # Draw Line
+                for i in range(9):
+                    line = data[i, -self.graph_points:].copy()
+                    line -= line.mean()
+                    line /= line.std()
+                    curve[i].setData(line)
+                # app.processEvents()  ## force complete redraw for every plot
+                # debug
+                end = datetime.now()
+                if row % self.debug_row == 0:
+                    print('Plot missed on         {}:     {}'.format(row, row - last_plotted))
+                    print('Time to graph          {}:     {}'.format(row, end - start))
+                    print('Graphed at             {}:     {}'.format(row, end))
+                # Update Latest Row
+                last_plotted = row
+
+        # Ready Plot
+        app = QtGui.QApplication([])
+        p = pg.plot()
+        p.setWindowTitle('CURRENCIES')
+        p.setLabel('bottom', 'Index', units='B')
+        curve = p.plot()
+        data = np.frombuffer(self.currencies).reshape(len(self.currencies_index), -1)
+        last_plotted = 0
+        # Describe Curve Set
+        curve = []
+        for i in range(9):
+            c = pg.PlotCurveItem(pen=(i, 9 * 1.3))
+            # c.setPos(0, i + 1)
+            p.addItem(c)
+            curve.append(c)
+
+        # Call Plot Update
+        timer = QtCore.QTimer()
+        timer.timeout.connect(update)
+        timer.start()
+        QtGui.QApplication.instance().exec_()
 
 
 if __name__ == '__main__':

@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
-oandapyV20.endpoints.accounts.AccountInstruments
 sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.oanda import get_candles_bid_close
 
