@@ -29,7 +29,7 @@ class Stream(Process):
         Process.__init__(self)
         
         # Import Configs File
-        self.configs_file = '/Users/user/Desktop/diff/configs.yaml'
+        self.configs_file = '/configs.yaml'
         with open(self.configs_file) as f:
             self.configs = yaml.load(f, Loader=yaml.FullLoader)
         

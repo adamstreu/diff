@@ -14,11 +14,12 @@ sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.oanda import get_tradable_instruments
 
 
-
 """
 Refactor code:
+    Implement New Currency Universe
+    Speed Up New CUrrency Univers
+    graph pair with difference
     figure out how many data points I can hande in calculation and set
-
 
 """
 
@@ -40,8 +41,9 @@ class Stream(Process):
         self.pairs_index = [x['name'] for x in self.pairs_index['instruments']]
         
         # Currencies
-        self.currencies_index = list(set('_'.join(self.pairs_index).split('_')))
-        self.currencies_index.sort()
+        self.currencies_index = self.create_currencies_index()
+        # self.currencies_index = list(set('_'.join(self.pairs_index).split('_')))
+        # self.currencies_index.sort()
         
         # Streaming Parameters
         self.bids_or_asks = 'bids'
@@ -56,8 +58,9 @@ class Stream(Process):
         self.oanda_account = self.configs['oanda_account']
 
         # Graphing
-        self.data_points = 25000
-        self.graph_points = 500
+        self.graph_delay = 300
+        self.data_points = 4000
+        self.graph_points = 3000
         self.debug_row = 100
         self.pair_to_graph = 18
         self.currency_1_to_graph = 3
@@ -70,6 +73,34 @@ class Stream(Process):
         self.calculated = RawArray('d', self.data_points * len(self.pairs_index))
         self.currencies = RawArray('d', self.data_points * len(self.currencies_index))
         self.row = Value('i', 0)
+
+
+    def create_currencies_index(self):
+        usd_provided, usd_inverse = self.create_usd_masks()
+        p = [x.replace('_USD', '') for x in np.array(self.pairs_index)[usd_provided]]
+        i = [x.replace('USD_', '') for x in np.array(self.pairs_index)[usd_inverse]]
+        currencies_index = ['USD'] + p + i
+        return currencies_index  
+
+
+    def create_usd_masks(self):
+        # Create Subset
+        usd_inverse = []
+        usd_provided = []
+        for pair in list(self.pairs_index):
+            if 'USD' == pair.split('_')[0]:
+                usd_inverse.append(True)        
+                usd_provided.append(False)
+            elif 'USD' == pair.split('_')[1]:
+                usd_inverse.append(False)        
+                usd_provided.append(True)
+            else:
+                usd_inverse.append(False)        
+                usd_provided.append(False)
+        usd_provided = np.array(usd_provided)
+        usd_inverse = np.array(usd_inverse)
+        return usd_provided, usd_inverse
+        
 
     def price_stream(self):
     
@@ -133,58 +164,71 @@ class Stream(Process):
         calculated = np.ones((len(self.pairs_index), self.data_points))
         differences = np.ones((len(self.pairs_index), self.data_points))
 
-        # Inverse and normal denominators for conversion calculation
-        inverse = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
-        given = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
-        for r in range(inverse.shape[0]):
-            for c in range(inverse.shape[1]):
-                if self.currencies_index[r] == self.pairs_index[c].split('_')[0]:
-                    inverse[r, c] = True
-                if self.currencies_index[r] == self.pairs_index[c].split('_')[1]:
-                    given[r, c] = True
-                    
+        # Fetch Masks for calculating usd price
+        usd_provided, usd_inverse = self.create_usd_masks()
+                
+        # Make  Mask for calculating _calculated prices
+        currency_nominator_mask = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
+        currency_denominator_mask = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
+        for i in range(len(self.pairs_index)):
+            nom = self.pairs_index[i].split('_')[0]
+            den = self.pairs_index[i].split('_')[1]
+            currency_nominator_mask[self.currencies_index.index(nom), i] = True
+            currency_denominator_mask[self.currencies_index.index(den), i] = True
+
         # Start
         while True:
             if not self.q.empty():
     
                 # Timestamp
                 calculations_start = datetime.now()
-    
+
+                ############## Get  @ 25000 points = .0001 ##############
                 # Gather most recent data from qu stream
                 _pairs = self.q.get()
                 row = _pairs[0]
-                _pairs = _pairs[1]
+                _pairs = np.array(_pairs[1])
+                ############## Get  @ 25000 points = .0001  ##############
 
+                ############## Roll @ 25000 points = .016 ##############
                 # Roll arrays
                 pairs[:, :-1] = pairs[:, 1:]
                 currencies[:, :-1] = currencies[:, 1:]
                 calculated[:, :-1] = calculated[:, 1:]
                 differences[:, :-1] = differences[:, 1:]
-                
+                ############## Roll@ 25000 points  = .016  ##############
+
+                ############## Calculations cycle time @ 25000 points = .0002  ##############
                 # Update Pairs
                 pairs[:, -1] = _pairs
-                # Calculate newest and update currencies
-                a = np.tile(_pairs, (len(self.currencies_index), 1))
-                _currencies = 1 / ((a * given).sum(1) + ((1 / a) * inverse).sum(1) + 1)
+                # Calculate usd from _pairs
+                usd = 1 / (1 + _pairs[usd_provided].sum() + (1 / _pairs[usd_inverse]).sum())
+                # Calculate Rest of currencies from usd
+                _currencies = np.array([usd] + list(usd * _pairs[usd_provided]) + list(usd / _pairs[usd_inverse]))
                 currencies[:, -1] = _currencies.copy()
-                # Calculate calculated and update calculated (yikes)
-                a = np.tile(_currencies, (len(self.pairs_index), 1))
-                _calculated = (a * inverse.T).sum(1) / (a * given.T).sum(1)
+                # Calculate 'calculated' prices
+                a = np.tile(_currencies, (len(self.pairs_index), 1)).T
+                _calculated = (a * currency_nominator_mask).sum(0) / (a * currency_denominator_mask).sum(0)
                 calculated[:, -1] = _calculated.copy()
-                # Calculate difference and update difference
-                _differences = _calculated.copy() - _pairs.copy()
+                # Calculate Differences
+                _differences = _pairs.copy() - _calculated.copy()
                 differences[:, -1] = _differences.copy()
-        
+                ############## Calculations cycle time @ 25000 points = .0002  ##############
+
+                ############## Write to Arrays @ 25000 points = .006 ##############
                 # Write Values to Shared Arrays
                 np.copyto(raw_pairs, pairs)
                 np.copyto(raw_currencies, currencies)
                 np.copyto(raw_calculated, calculated)
                 np.copyto(raw_differences, differences)
                 self.row.value = row
-                
-                # Debug
+                ##############  Write to Arrays @ 25000 points = .006  ##############
+
                 calculations_end = datetime.now()
+
+                # Debug
                 if row % self.debug_row == 0:
+                    print('Calculations Sum       {}:     {}'.format(row, _currencies.sum()))
                     print('Calculation Cycle Time {}:     {}'.format(row, calculations_end - calculations_start))
                     print('Calculation at         {}:     {}'.format(row, datetime.now()))
 
@@ -199,10 +243,49 @@ class Stream(Process):
                 printed = row
 
 
-    def start_processes(self):
-        Process(target=self.calculations).start()
-        Process(target=self.graph_currencies).start()
-        # Process(target=self.print_currencies).start()
+    def graph_differences(self):
+        global curve, data, p, last_plotted
+
+        def update():
+            global curve, data, ptr, p, last_plotted
+            start = datetime.now()
+            # Only Update graph with new data
+            row = self.row.value
+            if row > last_plotted:
+                # Draw Line
+                for i in range(data.shape[0]):
+                    curve[i].setData(data[i, -self.graph_points:])
+                # app.processEvents()  ## force complete redraw for every plot
+                # debug
+                end = datetime.now()
+                if row % self.debug_row == 0:
+                    print('Plot missed on         {}:     {}'.format(row, row - last_plotted))
+                    print('Time to graph          {}:     {}'.format(row, end - start))
+                    print('Graphed at             {}:     {}'.format(row, end))
+                # Update Latest Row
+                last_plotted = row
+
+        # Ready Plot
+        app = QtGui.QApplication([])
+        p = pg.plot()
+        p.setWindowTitle('CURRENCIES')
+        p.setLabel('bottom', 'Index', units='B')
+        curve = p.plot()
+        data = np.frombuffer(self.differences).reshape(len(self.pairs_index), -1)
+        last_plotted = 0
+        # Describe Curve Set
+        curve = []
+        for i in range(data.shape[0]):
+            c = pg.PlotCurveItem(pen=(i, 9 * 1.3))
+            # c.setPos(0, i + 1)
+            p.addItem(c)
+            curve.append(c)
+
+        # Call Plot Update
+        timer = QtCore.QTimer()
+        timer.timeout.connect(update)
+        timer.start()
+        QtGui.QApplication.instance().exec_()
 
 
     def graph_currencies(self):
@@ -215,7 +298,7 @@ class Stream(Process):
             row = self.row.value
             if row > last_plotted:
                 # Draw Line
-                for i in range(9):
+                for i in range(data.shape[0]):
                     line = data[i, -self.graph_points:].copy()
                     line -= line.mean()
                     line /= line.std()
@@ -240,7 +323,7 @@ class Stream(Process):
         last_plotted = 0
         # Describe Curve Set
         curve = []
-        for i in range(9):
+        for i in range(data.shape[0]):
             c = pg.PlotCurveItem(pen=(i, 9 * 1.3))
             # c.setPos(0, i + 1)
             p.addItem(c)
@@ -251,6 +334,84 @@ class Stream(Process):
         timer.timeout.connect(update)
         timer.start()
         QtGui.QApplication.instance().exec_()
+
+
+    def graph_indicator_and_pair(self, pair_index):
+
+        global curve1, curve2, data1, data2, viewbox, last_plotted, p
+
+        # Instantiate plot
+        win = pg.GraphicsWindow(self.pairs_index[pair_index])
+        p = win.addPlot(title=self.pairs_index[pair_index])
+        win.resize(600, 600)
+
+        # Try to add a second graph - don't know what any of this does.
+        viewbox = pg.ViewBox()
+        viewbox.setXLink(p)
+        p.scene().addItem(viewbox)
+        p.getAxis('right').linkToView(viewbox)
+        p.showAxis('right')
+        p.getAxis('left').setPen(pg.mkPen(color='#ffffff', width=1))
+        p.getAxis('right').setPen(pg.mkPen(color='#ffffff', width=1))
+        p.setLabel('left', 'PAIR', color='#ED15DF', **{'font-size': '14pt'})
+        p.setLabel('right', 'INDICATOR', color='#5AED15', **{'font-size': '14pt'})
+
+        p.enableAutoRange('y', True)
+        viewbox.enableAutoRange('y', True)
+
+        # Plot Curves
+        curve1 = p.plot(pen=pg.mkPen(color='#ED15DF', width=2))
+        data1 = np.frombuffer(self.pairs).reshape(len(self.pairs_index), -1)
+        curve2 = pg.PlotCurveItem(pen=pg.mkPen(color='#5AED15', width=2))
+        data2 = np.frombuffer(self.differences).reshape(len(self.pairs_index), -1)
+        viewbox.addItem(curve2)
+
+        # I have no idea - maybe try to delete
+        def updateViews():
+            global viewbox
+            viewbox.setGeometry(p.getViewBox().sceneBoundingRect())
+            viewbox.linkedViewChanged(p.getViewBox(), viewbox.XAxis)
+        updateViews()
+        p.getViewBox().sigResized.connect(updateViews)
+
+        # Debugging
+        last_plotted = 0
+
+        def update():
+            global curve1, curve2, data1, data2, viewbox, last_plotted, p
+            # Only Update graph with new data
+            start = datetime.now()
+            row = self.row.value
+            if row > last_plotted:
+                # Draw Line
+                curve1.setData(data1[pair_index, - self.graph_points:])
+                curve2.setData(data2[pair_index, - self.graph_points:])
+                # curve1.setData(data1[pair_index,  - (row - self.graph_points:]) # data_points - (latest - 300): -1]
+                # curve2.setData(data2[pair_index,  - self.graph_points:])
+                # app.processEvents()  ## force complete redraw for every plot
+                # debug
+                end = datetime.now()
+                if row % self.debug_row == 0:
+                    print('Plot missed on         {}:     {}'.format(row, row - last_plotted))
+                    print('Time to graph          {}:     {}'.format(row, end - start))
+                    print('Graphed at             {}:     {}'.format(row, end))
+                # Update Latest Row
+                last_plotted = row
+
+
+
+        timer = QtCore.QTimer()
+        timer.timeout.connect(update)
+        timer.start()
+        QtGui.QApplication.instance().exec_()
+
+
+    def start_processes(self):
+        Process(target=self.calculations).start()
+        Process(target=self.graph_indicator_and_pair, args=(23,)).start()
+        # Process(target=self.graph_currencies).start()
+        # Process(target=self.graph_differences).start()
+        # Process(target=self.print_currencies).start()
 
 
 if __name__ == '__main__':

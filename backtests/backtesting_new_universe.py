@@ -17,34 +17,32 @@ Backtesting currencies and Indicators and Look for major trends:
     6.  Save pulled candles onto disk so do not need to call Oanda every time.
 
 
-Questions:
-    
-    What is volume in candle?
-
-
 """
 
 
-# Candle Parameters
-_from = '2019-12-01T00:00:00Z'
-_to = '2020-01-01T00:00:00Z'
-granularity = 'H1'
 
-# Pairs
-instruments = get_tradable_instruments()
-pairs_index = [x['name'] for x in instruments['instruments']]
 
-# Currencies
-currencies_index = list(set('_'.join(pairs_index).split('_')))
-currencies_index.sort()
-currency_dict = dict(zip(currencies_index, [0] * len(currencies_index)))
 
 
 
 # Call Candles and assemble in to appropriate Dataframe, Calculate Indicators
 ##############################################################################
-if True:
+if False:
     
+    # Pairs
+    instruments = get_tradable_instruments()
+    pairs_index = [x['name'] for x in instruments['instruments']]
+    
+    # Currencies
+    currencies_index = list(set('_'.join(pairs_index).split('_')))
+    currencies_index.sort()
+    currency_dict = dict(zip(currencies_index, [0] * len(currencies_index)))
+
+    # Candle Parameters
+    _from = '2019-12-01T00:00:00Z'
+    _to = '2020-01-01T00:00:00Z'
+    granularity = 'H1'
+
     # GEt candles
     pairs = get_candles_bid_close(pairs_index[0], granularity, _from, _to)
     pairs = pairs.drop('volume', axis=1)
@@ -56,6 +54,7 @@ if True:
         pairs = pairs.join(df, how='inner')
     # Fill Forward missing prices, drop top row if any nans remain
     pairs = pairs.fillna(method='ffill').dropna()
+
 
     # Calculate Currencies and Indicator for each timestamp
     def conversion(pairs_dict, currency_dict):
@@ -103,7 +102,108 @@ if True:
     
     
     
-    
+# Streaming Build
+##############################################################################
+
+# Liek from Q
+_pairs = np.array(pairs.iloc[0].to_list())
+
+# Create Subset
+usd_inverse = []
+usd_provided = []
+for pair in list(pairs_index):
+    if 'USD' == pair.split('_')[0]:
+        usd_inverse.append(True)        
+        usd_provided.append(False)
+    elif 'USD' == pair.split('_')[1]:
+        usd_inverse.append(False)        
+        usd_provided.append(True)
+    else:
+        usd_inverse.append(False)        
+        usd_provided.append(False)
+usd_provided = np.array(usd_provided)
+usd_inverse = np.array(usd_inverse)
+
+p = [x.replace('_USD', '') for x in np.array(pairs_index)[usd_provided]]
+i = [x.replace('USD_', '') for x in np.array(pairs_index)[usd_inverse]]
+currencies_index = ['USD'] + p + i
+
+
+
+
+# IN LOOP # # # #
+
+
+# Calculate USD
+usd = 1 / (1 + _pairs[usd_provided].sum() + (1 / _pairs[usd_inverse]).sum())
+
+# Build Currencies Index
+_currencies = np.array([usd] + list(usd * _pairs[usd_provided]) + list(usd / _pairs[usd_inverse]) )
+
+# Build Calculated.
+
+
+
+# Make currency Mask
+currency_nominator_mask = np.zeros((len(currencies_index), len(pairs_index))).astype(bool)
+currency_denominator_mask = np.zeros((len(currencies_index), len(pairs_index))).astype(bool)
+for i in range(len(pairs_index)):
+    nom = pairs_index[i].split('_')[0]
+    den = pairs_index[i].split('_')[1]
+    currency_nominator_mask[currencies_index.index(nom), i] = True
+    currency_denominator_mask[currencies_index.index(den), i] = True
+
+
+# Build Currency mask out
+a = np.tile(_currencies, (len(pairs_index), 1)).T
+_calculated = (a * currency_nominator_mask).sum(0) / (a * currency_denominator_mask).sum(0)
+
+# Calculate Differences
+_pairs - _calculated
+
+
+'''
+# Create usd array to multiply by _currencies
+a = [_currencies[0]] + [_currencies[0]] * usd_provided.sum() + [1 / _currencies[0]] * usd_inverse.sum()
+a = np.array(a)
+'''
+
+'''
+[EUR] = [EUR_USD] * [   USD   ] 
+[CAD] = [USD_CAD] * [ 1 / USD ]
+
+
+
+# Inverse and normal denominators for conversion calculation
+inverse = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
+given = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
+for r in range(inverse.shape[0]):
+    for c in range(inverse.shape[1]):
+        if self.currencies_index[r] == self.pairs_index[c].split('_')[0]:
+            inverse[r, c] = True
+        if self.currencies_index[r] == self.pairs_index[c].split('_')[1]:
+        given[r, c] = True
+'''               
+
+
+
+
+'''
+# Calculate newest and update currencies
+a = np.tile(_pairs, (len(self.currencies_index), 1))
+_currencies = 1 / ((a * given).sum(1) + ((1 / a) * inverse).sum(1) + 1)
+'''
+
+
+
+
+
+
+
+
+
+
+
 
 
 

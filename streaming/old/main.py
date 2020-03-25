@@ -135,7 +135,7 @@ PERFORMANCE NOTES AND IMPORVEMENTS:
 if True:
 
     # Import Configs File
-    configs_file = '/Users/user/Desktop/diff/configs.yaml'
+    configs_file = '/configs.yaml'
     with open(configs_file) as f:
         configs = yaml.load(f, Loader=yaml.FullLoader)
 
