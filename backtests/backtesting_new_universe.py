@@ -1,4 +1,5 @@
 import pandas as pd
+from datetime import datetime
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
@@ -134,10 +135,10 @@ currencies_index = ['USD'] + p + i
 # IN LOOP # # # #
 
 
-# Calculate USD
+# Calculate USD - Time per Trial: 0.0009119
 usd = 1 / (1 + _pairs[usd_provided].sum() + (1 / _pairs[usd_inverse]).sum())
 
-# Build Currencies Index
+# Build Currencies Index - Time per Trial: 0.00134456
 _currencies = np.array([usd] + list(usd * _pairs[usd_provided]) + list(usd / _pairs[usd_inverse]) )
 
 # Build Calculated.
@@ -154,13 +155,24 @@ for i in range(len(pairs_index)):
     currency_denominator_mask[currencies_index.index(den), i] = True
 
 
-# Build Currency mask out
+# Build Currency mask out - Time per Trial: 0.00300964
 a = np.tile(_currencies, (len(pairs_index), 1)).T
 _calculated = (a * currency_nominator_mask).sum(0) / (a * currency_denominator_mask).sum(0)
 
-# Calculate Differences
-_pairs - _calculated
+# Calculate Differences - Time per Trial: 6.779e-05
+_differences = _pairs - _calculated
 
+
+
+trials = 10000
+start = datetime.now()
+for i in range(trials):
+    _pairs = np.array(_pairs)
+end = datetime.now()
+duration = end - start
+duration = duration.seconds + duration.microseconds / 10000
+print('Time per Trial: {}'.format(duration / trials))
+    
 
 '''
 # Create usd array to multiply by _currencies

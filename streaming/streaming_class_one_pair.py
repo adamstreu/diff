@@ -11,6 +11,8 @@ import oandapyV20.endpoints.pricing as pricing
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui, QtCore, QtWidgets
 from scipy import stats
+
+
 sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.oanda import get_tradable_instruments
 
@@ -27,31 +29,37 @@ Refactor code:
 
 class Stream(Process):
 
-    def __init__(self):
+
+    def __init__(self, pair):
 
         # In order to be able to run processes in class properly
         Process.__init__(self)
-        
+
         # Import Configs File
         self.configs_file = '/Users/user/Desktop/diff/configs.yaml'
         with open(self.configs_file) as f:
             self.configs = yaml.load(f, Loader=yaml.FullLoader)
-                
+
         # Pairs
+        self.pair = pair
         self.pairs_index = get_tradable_instruments()
         self.pairs_index = [x['name'] for x in self.pairs_index['instruments']]
-        
+
         # Currencies
         self.currencies_index = self.create_currencies_index()
-        
+        self.currency_nom = self.pair.split('_')[0]
+        self.currency_den = self.pair.split('_')[1]
+        self.currency_nom_subset = self.create_currencies_index()#self.currency_nom)
+        self.currency_den_subset = self.create_currencies_index()#self.currency_den)
+
         # Streaming Parameters
         self.bids_or_asks = 'bids'
-        
+
         # Data Windows
         self.mean_windows = [10, 20, 30]
         self.cov_windows = [30, 75, 150]
         self.slope_windows = [30, 75]
-                
+
         # Oanda Parameters - Need to update to configs
         self.oanda_api = self.configs['oanda_api']
         self.oanda_account = self.configs['oanda_account']
@@ -61,82 +69,82 @@ class Stream(Process):
         self.data_points = 20000
         self.graph_points = 20000
         self.debug_row = 1000
-        self.pair_to_graph = self.pairs_index.index('EUR_USD')
-        self.currency_1_to_graph = 3
-        self.currency_2_to_graph = 8
+        self.pair_to_graph = self.pairs_index.index(self.pair) # remove this when convenient
 
         # Shared Arrays, Q's and Values
         self.q = Queue()
-        self.differences = RawArray('d', self.data_points)# * len(self.pairs_index))
-        self.pairs = RawArray('d', self.data_points )#* len(self.pairs_index))
+        self.differences = RawArray('d', self.data_points)  # * len(self.pairs_index))
+        self.pairs = RawArray('d', self.data_points)  # * len(self.pairs_index))
         self.calculated = RawArray('d', self.data_points * len(self.pairs_index))
         self.currencies = RawArray('d', self.data_points * len(self.currencies_index))
         self.row = Value('i', 0)
 
 
     def create_currencies_index(self):
-        usd_provided, usd_inverse = self.create_usd_masks()
+        usd_provided, usd_inverse = self.create_currency_subset('USD')
         p = [x.replace('_USD', '') for x in np.array(self.pairs_index)[usd_provided]]
         i = [x.replace('USD_', '') for x in np.array(self.pairs_index)[usd_inverse]]
         currencies_index = ['USD'] + p + i
-        return currencies_index  
+        return currencies_index
 
 
-    def create_usd_masks(self):
+    def create_currency_subset(self, currency):
         # Create Subset
-        usd_inverse = []
-        usd_provided = []
+        inverse = []
+        provided = []
         for pair in list(self.pairs_index):
-            if 'USD' == pair.split('_')[0]:
-                usd_inverse.append(True)        
-                usd_provided.append(False)
-            elif 'USD' == pair.split('_')[1]:
-                usd_inverse.append(False)        
-                usd_provided.append(True)
+            if currency.upper() == pair.split('_')[0]:
+                inverse.append(True)
+                provided.append(False)
+            elif currency.upper() == pair.split('_')[1]:
+                inverse.append(False)
+                provided.append(True)
             else:
-                usd_inverse.append(False)        
-                usd_provided.append(False)
-        usd_provided = np.array(usd_provided)
-        usd_inverse = np.array(usd_inverse)
-        return usd_provided, usd_inverse
-        
+                inverse.append(False)
+                provided.append(False)
+        provided = np.array(provided)
+        usd_inverse = np.array(inverse)
+        return provided, inverse
+
+
+
 
     def price_stream(self):
-    
+
         """
         Stream Prices from Oanda for pairs list.
         Load data into a q if passed as argument
         No sql, Que only
         Load bid and ask for pair into configs file
         """
-    
+
         # Streaming Parameters
         _pairs = np.ones(len(self.pairs_index))
         api = oandapyV20.API(access_token=self.oanda_api)
         params = {'instruments': ','.join(self.pairs_index)}
         r = pricing.PricingStream(accountID=self.oanda_account, params=params)
-        
+
         # Start Data Stream
         row = 1
         while True:
             for ticks in api.request(r):
                 if ticks['type'] == 'PRICE' and ticks['instrument'] in self.pairs_index:
                     try:
-    
+
                         # Update Pairs with Latest price.  Set timestamp
                         pair = ticks['instrument']
                         _pairs[self.pairs_index.index(pair)] = float(ticks[self.bids_or_asks][0]['price'])
                         self.q.put([row, _pairs])
                         row += 1
-    
+
                         # Debugging - timestamp - Pair info loaded into Q
                         if row % self.debug_row == 0:
                             print('Oanda Sent             {}:     {}'.format(row, ticks['time']))
                             print('Stream into q          {}:     {}'.format(row, datetime.now()))
-    
+
                     except Exception as e:
                         print('Stream | Calculation exception: {}'.format(e))
-    
+
                     # Load ask and bid data into configs to share with trading module
                     if pair == self.configs['pair']:
                         self.configs['bid'] = float(ticks['bids'][0]['price'])
@@ -144,9 +152,9 @@ class Stream(Process):
                         with open(self.configs_file, 'w') as f:
                             yaml.dump(self.configs, f)
 
-            
+
     def calculations(self):
-        
+
         # Do what needs to be done with shared arrays
         # raw_pairs = np.frombuffer(self.pairs, dtype=np.float64)
         # raw_pairs = raw_pairs.reshape(len(self.pairs_index), self.data_points)
@@ -162,8 +170,6 @@ class Stream(Process):
         raw_differences = np.frombuffer(self.differences, dtype=np.float64)
         raw_differences = raw_differences.reshape(self.data_points)
 
-
-
         # Required Numpy Arrays
         pairs = np.ones((len(self.pairs_index), self.data_points))
         currencies = np.ones((len(self.currencies_index), self.data_points))
@@ -171,8 +177,8 @@ class Stream(Process):
         differences = np.ones((len(self.pairs_index), self.data_points))
 
         # Fetch Masks for calculating usd price
-        usd_provided, usd_inverse = self.create_usd_masks()
-                
+        usd_provided, usd_inverse = self.create_currency_subset('USD')
+
         # Make  Mask for calculating _calculated prices
         currency_nominator_mask = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
         currency_denominator_mask = np.zeros((len(self.currencies_index), len(self.pairs_index))).astype(bool)
@@ -250,7 +256,7 @@ class Stream(Process):
         a = np.frombuffer(self.currencies).reshape(len(self.currencies_index), -1)
         printed = 0
         while True:
-            row = self.row.value            
+            row = self.row.value
             if row % self.debug_row == 0 and row > printed:
                 print('From Next Function     {}:     {}'.format(row, a[:, -1]))
                 printed = row
@@ -258,6 +264,7 @@ class Stream(Process):
 
     def graph_differences(self):
         global curve, data, p, last_plotted
+
 
         def update():
             global curve, data, ptr, p, last_plotted
@@ -277,6 +284,7 @@ class Stream(Process):
                     print('Graphed at             {}:     {}'.format(row, end))
                 # Update Latest Row
                 last_plotted = row
+
 
         # Ready Plot
         app = QtGui.QApplication([])
@@ -304,6 +312,7 @@ class Stream(Process):
     def graph_currencies(self):
         global curve, data, p, last_plotted
 
+
         def update():
             global curve, data, ptr, p, last_plotted
             start = datetime.now()
@@ -325,6 +334,7 @@ class Stream(Process):
                     print('Graphed at             {}:     {}'.format(row, end))
                 # Update Latest Row
                 last_plotted = row
+
 
         # Ready Plot
         app = QtGui.QApplication([])
@@ -382,16 +392,20 @@ class Stream(Process):
         viewbox.addItem(curve2)
         viewbox.addItem(curve_zero_line)
 
+
         # I have no idea - maybe try to delete
         def updateViews():
             global viewbox
             viewbox.setGeometry(p.getViewBox().sceneBoundingRect())
             viewbox.linkedViewChanged(p.getViewBox(), viewbox.XAxis)
+
+
         updateViews()
         p.getViewBox().sigResized.connect(updateViews)
 
         # Debugging
         last_plotted = 0
+
 
         def update():
             global curve1, curve2, data1, data2, viewbox, last_plotted, p, curve_zero_line
@@ -414,11 +428,11 @@ class Stream(Process):
                 # Update Latest Row
                 last_plotted = row
 
+
         timer = QtCore.QTimer()
         timer.timeout.connect(update)
         timer.start()
         QtGui.QApplication.instance().exec_()
-
 
 
     def graph_indicator_and_pair_rolling_diff(self, pair_index):
@@ -446,19 +460,22 @@ class Stream(Process):
 
         # Plot Curves
         curve1 = p.plot(pen=pg.mkPen(color='#ED15DF', width=2))
-        data1 = np.frombuffer(self.pairs)#.reshape(len(self.pairs_index), -1)
+        data1 = np.frombuffer(self.pairs)  # .reshape(len(self.pairs_index), -1)
         curve2 = pg.PlotCurveItem(pen=pg.mkPen(color='#5AED15', width=2))
-        data2 = np.frombuffer(self.differences)#.reshape(len(self.pairs_index), -1)
+        data2 = np.frombuffer(self.differences)  # .reshape(len(self.pairs_index), -1)
         curve_zero_line = pg.PlotCurveItem(np.zeros(self.graph_points), pen=pg.mkPen(color='#808080', width=1))
         roll = np.zeros(self.graph_points)
         viewbox.addItem(curve2)
         viewbox.addItem(curve_zero_line)
+
 
         # I have no idea - maybe try to delete
         def updateViews():
             global viewbox
             viewbox.setGeometry(p.getViewBox().sceneBoundingRect())
             viewbox.linkedViewChanged(p.getViewBox(), viewbox.XAxis)
+
+
         updateViews()
         p.getViewBox().sigResized.connect(updateViews)
 
@@ -467,6 +484,7 @@ class Stream(Process):
         sum = 0
         cum_line = np.zeros(data2[- self.graph_points:].shape)
 
+
         def update():
             global curve1, curve2, data1, data2, viewbox, last_plotted, p, curve_zero_line, cum_line, sum
             # Only Update graph with new data
@@ -474,8 +492,8 @@ class Stream(Process):
             row = self.row.value
             if row > last_plotted:
 
-                sum = cum_line[row-last_plotted]
-                cum_line = np.cumsum(data2[ - self.graph_points:]) #+ sum
+                sum = cum_line[row - last_plotted]
+                cum_line = np.cumsum(data2[- self.graph_points:])  # + sum
 
                 # Draw Line
                 curve1.setData(data1[- self.graph_points:])
@@ -491,18 +509,16 @@ class Stream(Process):
                 # Update Latest Row
                 last_plotted = row
 
+
         timer = QtCore.QTimer()
         timer.timeout.connect(update)
         timer.start()
         QtGui.QApplication.instance().exec_()
 
 
-
-
     def graph_covariance_on_and_pair_rolling_diff(self, pair_index):
 
         global curve1, curve2, data1, data2, viewbox, last_plotted, p, curve_zero_line, cum_line, pair_line, ind_line
-
 
         # Instantiate plot
         win = pg.GraphicsWindow(self.pairs_index[pair_index])
@@ -520,10 +536,9 @@ class Stream(Process):
         curve3 = p.plot(pen=pg.mkPen(color='#32909a', width=2))
         curve4 = p.plot(pen=pg.mkPen(color='#1f5a60', width=2))
 
-
-
-
         last_plotted = 0
+
+
         def update():
             global curve1, curve2, viewbox, last_plotted, p, curve_zero_line, cum_line, pair_line, ind_line
             # Only Update graph with new data
@@ -531,7 +546,7 @@ class Stream(Process):
             row = self.row.value
             if row > last_plotted:
 
-                cum_line = np.cumsum(ind_line[ - self.graph_points:])
+                cum_line = np.cumsum(ind_line[- self.graph_points:])
                 pair = pair_line[- self.graph_points:]
                 df = pd.DataFrame(np.c_[cum_line, pair])
 
@@ -554,6 +569,7 @@ class Stream(Process):
                     print('Graphed at             {}:     {}'.format(row, end))
                 # Update Latest Row
                 last_plotted = row
+
 
         timer = QtCore.QTimer()
         timer.timeout.connect(update)
@@ -591,8 +607,10 @@ class Stream(Process):
         curve2 = pg.PlotCurveItem(pen=pg.mkPen(color='#00ffff', width=2))
         data2 = np.frombuffer(self.differences).reshape(len(self.pairs_index), -1)
         curve_zero_line = pg.PlotCurveItem(np.zeros(self.graph_points), pen=pg.mkPen(color='#808080', width=1))
-        curve_low_point = pg.PlotCurveItem(np.zeros(self.graph_points), pen=pg.mkPen(color='#ff0000', width=1), symbolPen='w')
-        curve_high_point = pg.PlotCurveItem(np.zeros(self.graph_points), pen=pg.mkPen(color='#40ff00', width=1), symbolPen='w')
+        curve_low_point = pg.PlotCurveItem(np.zeros(self.graph_points), pen=pg.mkPen(color='#ff0000', width=1),
+                                           symbolPen='w')
+        curve_high_point = pg.PlotCurveItem(np.zeros(self.graph_points), pen=pg.mkPen(color='#40ff00', width=1),
+                                            symbolPen='w')
         data_low_points = np.empty(self.graph_points)
         data_high_points = np.empty(self.graph_points)
 
@@ -601,16 +619,20 @@ class Stream(Process):
         viewbox.addItem(curve_low_point)
         viewbox.addItem(curve_high_point)
 
+
         # I have no idea - maybe try to delete
         def updateViews():
             global viewbox
             viewbox.setGeometry(p.getViewBox().sceneBoundingRect())
             viewbox.linkedViewChanged(p.getViewBox(), viewbox.XAxis)
+
+
         updateViews()
         p.getViewBox().sigResized.connect(updateViews)
 
         # Debugging
         last_plotted = 0
+
 
         def update():
             global curve1, curve2, data1, data2, viewbox, last_plotted, p
@@ -621,39 +643,37 @@ class Stream(Process):
             if row > last_plotted:
 
 
-
                 '''
                 a = np.array([6, 6, 6, 3, 3, 3, 4, 5, 5, 5, 6])
                 b = np.array([1, 2, 3, 3, 4, 4, 4, 2, 2, 5, 5])
-                
-                
+
+
                 a_up = a[1:] > a[:-1]
                 a_dw = a[1:] < a[:-1]
                 b_sm = b[1:] == b[:-1]
-                
+
                 a_up = np.insert(a_up, 0, False)
                 a_dw = np.insert(a_dw, 0, False)
                 b_sm = np.insert(b_sm, 0, False)
-                
-                
+
+
                 up_index = a_up & b_sm
                 dw_index = a_dw & b_sm
-                
 
-                
+
+
                 up_empty = np.zeros(a.shape)
                 dw_empty = np.zeros(a.shape)
-                
+
                 up_empty[up_index] = a[up_index]
                 dw_empty[dw_index] = a[dw_index]
-                
 
-                
+
+
                 plt.plot(np.arange(11), dw_empty, 'o', color='red')
                 plt.figure()
                 plt.plot(np.arange(11), up_empty, 'o', color='green')
                 '''
-
 
                 # Calculate high points change
                 data_low_points = np.zeros(self.graph_points)
@@ -676,7 +696,6 @@ class Stream(Process):
                 data_high_points[up_index] = diff[up_index]
                 data_low_points[dw_index] = diff[dw_index]
 
-
                 # Draw Line
                 curve1.setData(data1[pair_index, - self.graph_points:])
                 curve2.setData(data2[pair_index, - self.graph_points:])
@@ -695,6 +714,7 @@ class Stream(Process):
                     print('Graphed at             {}:     {}'.format(row, end))
                 # Update Latest Row
                 last_plotted = row
+
 
         timer = QtCore.QTimer()
         timer.timeout.connect(update)
@@ -725,9 +745,7 @@ class Stream(Process):
         p.enableAutoRange('y', True)
         viewbox.enableAutoRange('y', True)
 
-
         pair_curves = []
-        
 
         # Plot Curves
         #
@@ -744,16 +762,21 @@ class Stream(Process):
         data2 = np.frombuffer(self.differences).reshape(len(self.pairs_index), -1)
         viewbox.addItem(curve2)
         '''
+
+
         # I have no idea - maybe try to delete
         def updateViews():
             global viewbox
             viewbox.setGeometry(p.getViewBox().sceneBoundingRect())
             viewbox.linkedViewChanged(p.getViewBox(), viewbox.XAxis)
+
+
         updateViews()
         p.getViewBox().sigResized.connect(updateViews)
 
         # Debugging
         last_plotted = 0
+
 
         def update():
             global pair_curves, currency_curve, pair_data, currency_data, viewbox, last_plotted, p
@@ -776,23 +799,19 @@ class Stream(Process):
                 # Update Latest Row
                 last_plotted = row
 
+
         timer = QtCore.QTimer()
         timer.timeout.connect(update)
         timer.start()
         QtGui.QApplication.instance().exec_()
 
 
-
-
-
-
-
     def start_processes(self):
         Process(target=self.calculations).start()
         # Process(target=self.graph_simple).start()
         # Process(target=self.graph_indicator_and_pair_with_delta_points, args=(self.pairs_index.index('EUR_CAD'),)).start()
-        Process(target=self.graph_indicator_and_pair_rolling_diff, args=(self.pair_to_graph,)).start()
-        Process(target=self.graph_covariance_on_and_pair_rolling_diff, args=(self.pair_to_graph,)).start()
+        # Process(target=self.graph_indicator_and_pair_rolling_diff, args=(self.pair_to_graph,)).start()
+        # Process(target=self.graph_covariance_on_and_pair_rolling_diff, args=(self.pair_to_graph,)).start()
 
         # Process(target=self.graph_indicator_and_pair, args=(self.pairs_index.index('EUR_USD'),)).start()
         # Process(target=self.graph_indicator_and_pair, args=(self.pairs_index.index('AUD_CAD'),)).start()
@@ -802,20 +821,16 @@ class Stream(Process):
         # Process(target=self.print_currencies).start()
 
 
-
-
-
 if __name__ == '__main__':
-    
     # instantiate class
-    s = Stream()
-    
+    s = Stream('EUR_USD')
+
     # Start Processes
     s.start_processes()
-    
+
     # Start Price Steam ( in main Process )
     s.price_stream()
-    
+
 
 
 

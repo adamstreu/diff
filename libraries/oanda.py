@@ -13,7 +13,7 @@ import oandapyV20.endpoints.orders as orders
 import oandapyV20.endpoints.pricing as pricing
 import oandapyV20.endpoints.forexlabs as labs
 oandapyV20.endpoints.accounts.AccountInstruments
-# sys.path.insert(1, '/Users/user/Desktop/diff')
+sys.path.insert(1, '/Users/user/Desktop/diff')
 from libraries.database import dictionary_insert
 from libraries.database import database_execute
 from libraries.database import database_retrieve
@@ -37,6 +37,25 @@ def get_tradable_instruments(oanda_api=oanda_api,
     r = accounts.AccountInstruments(oanda_account, params=params)
     client.request(r)
     return r.response
+
+
+def get_position_book(pair, oanda_api=oanda_api, oanda_account=oanda_account):
+    client = oandapyV20.API(access_token=oanda_api)
+    params = {}
+    r = instruments.InstrumentsPositionBook(instrument=pair)
+    client.request(r)
+    return r.response
+
+
+def get_orders_book(pair, oanda_api=oanda_api, oanda_account=oanda_account):
+    client = oandapyV20.API(access_token=oanda_api)
+    params = {}
+    r = instruments.InstrumentsOrderBook(instrument=pair,
+                                         params=params)
+    client.request(r)
+    return r.response
+
+
 
 def get_candles_bid_close(instrument, granularity, _from, _to,
                           da=daily_alignment, oanda_api=oanda_api):
@@ -92,6 +111,10 @@ def fetch_account_details(oanda_api=oanda_api, oanda_account=oanda_account):
 
 
 
+
+
+
+
 def close_position(direction, pair):
 
     # Get Units to close based on direction of original trade
@@ -112,44 +135,29 @@ def close_position(direction, pair):
     # Attempt Request and return response
     try:
         client.request(r)
-        print(r.response)
+        # print(r.response)
         return r.response
     except:
         return r.response
-        print(r.response)
+        # print(r.response)
 
 
-def create_order(pair, direction, pips, commission, loss_target, purchase_price, oanda_api, oanda_account):
-    
-    def calculate_quantity(loss_target, commission, pips):
-        quantity = int(loss_target / ((commission + pips) * .0001))
-        if direction == 'buy':
-            return quantity
-        else:
-            return - quantity
 
-    def calculate_stop_loss_price(pips, direction, purchase_price):
-        if direction == 'buy':
-            stop_loss_price = purchase_price - (pips * .0001)
-        else:
-            stop_loss_price = purchase_price + (pips * .0001)
-        return stop_loss_price
+
+def create_order(pair, direction, oanda_api=oanda_api, oanda_account=oanda_account):
     
     # Calculate trade parameters
-    quantity = calculate_quantity(loss_target, commission, pips)
-    stop_loss_price = calculate_stop_loss_price(pips, direction, purchase_price)
-    q = 30000
+    q = 10000
     if direction == 'sell':
         q = - q
+        
     # Fix Trade Data
-    data = {'order': {"units": q, #quantity,
+    data = {'order': {"units": q, 
                       "instrument": pair,
                       "timeInForce": "FOK",
                       "type": "MARKET",
-                      "positionFill": "DEFAULT"}}#,
-                      # 'stopLossOnFill': {'timeInForce': 'GTC',
-                      #                    'price': str(round(stop_loss_price, 5))}}}
-
+                      "positionFill": "DEFAULT"}}
+   
     # Place Order
     client = oandapyV20.API(access_token=oanda_api)
     r = orders.OrderCreate(oanda_account, data=data)
@@ -159,6 +167,48 @@ def create_order(pair, direction, pips, commission, loss_target, purchase_price,
     except Exception as e:
         print(e)
         return r.response
+
+
+# def create_order(pair, direction, pips, commission, loss_target, purchase_price, oanda_api, oanda_account):
+    
+#     def calculate_quantity(loss_target, commission, pips):
+#         quantity = int(loss_target / ((commission + pips) * .0001))
+#         if direction == 'buy':
+#             return quantity
+#         else:
+#             return - quantity
+
+#     def calculate_stop_loss_price(pips, direction, purchase_price):
+#         if direction == 'buy':
+#             stop_loss_price = purchase_price - (pips * .0001)
+#         else:
+#             stop_loss_price = purchase_price + (pips * .0001)
+#         return stop_loss_price
+    
+#     # Calculate trade parameters
+#     quantity = calculate_quantity(loss_target, commission, pips)
+#     stop_loss_price = calculate_stop_loss_price(pips, direction, purchase_price)
+#     q = 30000
+#     if direction == 'sell':
+#         q = - q
+#     # Fix Trade Data
+#     data = {'order': {"units": q, #quantity,
+#                       "instrument": pair,
+#                       "timeInForce": "FOK",
+#                       "type": "MARKET",
+#                       "positionFill": "DEFAULT"}}#,
+#                       # 'stopLossOnFill': {'timeInForce': 'GTC',
+#                       #                    'price': str(round(stop_loss_price, 5))}}}
+
+#     # Place Order
+#     client = oandapyV20.API(access_token=oanda_api)
+#     r = orders.OrderCreate(oanda_account, data=data)
+#     try:
+#         client.request(r)
+#         return r.response
+#     except Exception as e:
+#         print(e)
+#         return r.response
 
 
 

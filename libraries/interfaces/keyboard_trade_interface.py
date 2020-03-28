@@ -42,7 +42,7 @@ Notes on Quantity Calculation
 
 class TradeInterface:
 
-    def __init__(self):
+    def __init__(self, pair):
 
         # Some Key loop Variables - not stored in configurations
         self.order_timestamp = datetime.now()
@@ -51,6 +51,7 @@ class TradeInterface:
         self.order = {}
         self.kill = {}
         self.time_delay = 200000
+        self.pair = pair
 
         # Import Configurations and 'global_variables'
         print('\n\nKeyboard Trader Activated\n\n')
@@ -74,14 +75,17 @@ class TradeInterface:
         keyboard.hook(self.my_keyboard_hook)
         keyboard.wait()
 
+
     def write_configs(self):
         with open(self.configs_file, 'w') as f:
             yaml.dump(self.configs, f)
+
 
     def print_msg(self, msg):
         msg = msg + ': {}'
         msg = msg.format(datetime.now())
         print(msg)
+
 
     def kill_order(self):
         proceed = (datetime.now() - self.order_timestamp).microseconds > self.time_delay
@@ -89,45 +93,49 @@ class TradeInterface:
             if self.active_order:
                 order_timestamp = datetime.now()
                 self.print_msg('\nKILL Keypress')
-                self.kill = close_position(self.active_direction, self.configs['pair'])
+                # self.kill = close_position(self.active_direction, self.configs['pair'])
+                self.kill = close_position(self.active_direction, self.pair)
                 self.active_order = False
-                order_create = 'longOrderCreateTransaction'
-                order_fill = 'longOrderFillTransaction'
-                if self.active_direction == 'sell':
-                    order_create = 'shortOrderCreateTransaction'
-                    order_fill = 'shortOrderFillTransaction'
-                print('Kill Create Timestamp: {}'.format(self.kill[order_create]['time']))
-                print('Kill Fill Timestamp:   {}'.format(self.kill[order_fill]['time']))
-                print('Kill Price: {}'.format(self.kill[order_fill]['price']))
-                print('Order Commission     : {}'.format(self.kill[order_fill]['commission']))
-                self.configs['account_balance'] = float(self.kill[order_fill]['accountBalance'])
-                self.configs['last_transaction_id'] = self.kill['lastTransactionID']
+                # order_create = 'longOrderCreateTransaction'
+                # order_fill = 'longOrderFillTransaction'
+                # if self.active_direction == 'sell':
+                #     order_create = 'shortOrderCreateTransaction'
+                #     order_fill = 'shortOrderFillTransaction'
+                # print('Kill Create Timestamp: {}'.format(self.kill[order_create]['time']))
+                # print('Kill Fill Timestamp:   {}'.format(self.kill[order_fill]['time']))
+                # print('Kill Price: {}'.format(self.kill[order_fill]['price']))
+                # print('Order Commission     : {}'.format(self.kill[order_fill]['commission']))
+                # self.configs['account_balance'] = float(self.kill[order_fill]['accountBalance'])
+                # self.configs['last_transaction_id'] = self.kill['lastTransactionID']
                 self.write_configs()
                 print(self.configs)
             else:
                 print('No Active Orders to close')
             self.order_timestamp = datetime.now()
 
+
     def purchase_order(self, direction):
         proceed = (datetime.now() - self.order_timestamp).microseconds > self.time_delay
         if proceed:
             if not self.active_order:
-                if direction == 'buy':
-                    price = self.configs['bid']
-                else:
-                    price = self.configs['ask']
+                # if direction == 'buy':
+                #     price = self.configs['bid']
+                # else:
+                #     price = self.configs['ask']
 
-                print(self.configs['trade_risk'], self.configs['account_balance'])
-                print(type(self.configs['trade_risk']), type(self.configs['account_balance']))
-                self.order = create_order(self.configs['pair'],
-                                          direction,
-                                          self.configs['pips'],
-                                          self.configs['commission'],
-                                          self.configs['trade_risk'] * self.configs['account_balance'],
-                                          price,
-                                          self.configs['oanda_api'],
-                                          self.configs['oanda_account'])
-                print()
+                # print(self.configs['trade_risk'], self.configs['account_balance'])
+                # print(type(self.configs['trade_risk']), type(self.configs['account_balance']))
+                self.order = create_order(self.pair,
+                                          direction )
+                # self.order = create_order(self.configs['pair'],
+                #                           direction,
+                #                           self.configs['pips'],
+                #                           self.configs['commission'],
+                #                           self.configs['trade_risk'] * self.configs['account_balance'],
+                #                           price,
+                #                           self.configs['oanda_api'],
+                #                           self.configs['oanda_account'])
+                # print()
                 self.order_timestamp = datetime.now()
                 self.active_direction = direction
                 self.print_msg('\nBuy Keypress')
@@ -139,6 +147,7 @@ class TradeInterface:
             else:
                 print('Active Order: can not place new')
             self.order_timestamp = datetime.now()
+
 
     def adjust_pips(self, direction):
         proceed = (datetime.now() - self.order_timestamp).microseconds > self.time_delay
@@ -153,6 +162,7 @@ class TradeInterface:
             self.print_msg('Pips loss Raised to {}'.format(self.configs['pips']))
             self.write_configs()
             self.order_timestamp = datetime.now()
+
 
     def my_keyboard_hook(self, keyboard_event):
         """ Callback Loop"""
@@ -179,7 +189,7 @@ class TradeInterface:
 
 
 if __name__ == '__main__':
-    t = TradeInterface()
+    t = TradeInterface('EUR_DKK')
 
 """
 account_balance: 821.6841
